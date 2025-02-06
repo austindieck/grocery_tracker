@@ -1,0 +1,28 @@
+name: Run Scraper Daily
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Runs every day at 6 AM UTC
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install Dependencies
+        run: |
+          pip install requests beautifulsoup4 fake_useragent supabase
+
+      - name: Run Scraper
+        env:
+          SUPABASE_URL: "https://qbccysstzmoklbagcqzl.supabase.co"
+          SUPABASE_KEY: "your-service-role-key"
+        run: python scraper.py
