@@ -2,13 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
+import os
 from fake_useragent import UserAgent
 from datetime import datetime
 from supabase import create_client, Client
 
 # 🟢 Supabase API Config
-SUPABASE_URL = "https://qbccysstzmoklbagcqzl.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFiY2N5c3N0em1va2xiYWdjcXpsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczODgwNzAxNywiZXhwIjoyMDU0MzgzMDE3fQ.cCFj4M3hzmhUHVtvxrCPdro-DR1rcDLPJZ3BM2gjxlU"  # Replace with actual service role key
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Create Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
