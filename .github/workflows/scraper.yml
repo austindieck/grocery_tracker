@@ -23,6 +23,6 @@ jobs:
 
       - name: Run Scraper
         env:
-          SUPABASE_URL: "https://qbccysstzmoklbagcqzl.supabase.co"
-          SUPABASE_KEY: "your-service-role-key"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python scraper.py
