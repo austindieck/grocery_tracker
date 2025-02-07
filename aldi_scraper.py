@@ -32,7 +32,7 @@ def save_to_supabase(store_name, product_name, price):
         }
 
         # Insert or update using upsert
-        response = supabase.table("grocery_prices").upsert([data]).execute()
+        response = supabase.table("grocery_prices").insert([data]).execute()
 
         # Debugging: Print Supabase response
         if response.data:
