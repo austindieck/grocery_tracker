@@ -16,49 +16,46 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = dash.Dash(__name__)
 server = app.server  # Required for Render Deployment
 
-# 🟢 Fetch data from Supabase when the app loads
-response = supabase.table("grocery_prices").select("*").execute()
-df = pd.DataFrame(response.data) if response.data else pd.DataFrame()
+all_data = []
+limit = 1000  # Supabase row limit per request
+offset = 0
 
-# Convert scrape_date to datetime
-df["scrape_date"] = pd.to_datetime(df["scrape_date"])
+while True:
+    response = (
+        supabase.table("grocery_prices")
+        .select("*")
+        .order("scrape_date", desc=True)  # Fetch newest records first
+        .range(offset, offset + limit - 1)  # Get 1000 rows at a time
+        .execute()
+    )
+
+    data_chunk = response.data
+
+    if not data_chunk:  # Stop when no more data is returned
+        break
+
+    all_data.extend(data_chunk)  # Add fetched data
+    offset += limit  # Move to the next batch
+
+# Convert to DataFrame
+df = pd.DataFrame(all_data) if all_data else pd.DataFrame()
+
+# Debug: Print total rows retrieved
+print(f"\nTotal Rows Fetched from Supabase (After Pagination): {len(df)}")
+
+# Ensure scrape_date is in datetime format
+if "scrape_date" in df.columns:
+    df["scrape_date"] = pd.to_datetime(df["scrape_date"], errors="coerce")
+
+# Sort data **ascending** to ensure proper plotting
+df = df.sort_values(by="scrape_date", ascending=True)
+
+# Debugging: Check full date range
+print("\nEarliest Date in Data:", df["scrape_date"].min())
+print("Latest Date in Data:", df["scrape_date"].max())
 
 # Get unique product names for dropdown
 product_options = [{"label": p, "value": p} for p in df["product_name"].unique()] if not df.empty else []
-
-# 🟢 Calculate Top 10 Price Changes
-def get_price_changes():
-    if df.empty:
-        return []
-
-    # Get the most recent two days in the dataset
-    latest_dates = df["scrape_date"].drop_duplicates().nlargest(2).tolist()
-    if len(latest_dates) < 2:
-        return []
-
-    today, yesterday = latest_dates
-
-    # Filter for the last two days
-    today_prices = df[df["scrape_date"] == today].set_index("product_name")["price"]
-    yesterday_prices = df[df["scrape_date"] == yesterday].set_index("product_name")["price"]
-
-    # Calculate percentage change
-    price_changes = ((today_prices - yesterday_prices) / yesterday_prices * 100).dropna()
-    
-    # Sort by absolute change and get top 10
-    top_changes = price_changes.abs().nlargest(10)
-
-    # Format results for display
-    alerts = [
-        {
-            "product": product,
-            "change": price_changes[product],
-            "color": "red" if price_changes[product] > 0 else "green"
-        }
-        for product in top_changes.index
-    ]
-    
-    return alerts
 
 # 🖌️ Layout with Two-Column Structure
 app.layout = html.Div(
@@ -66,7 +63,7 @@ app.layout = html.Div(
         "fontFamily": "Arial, sans-serif",
         "margin": "20px auto",
         "maxWidth": "1400px",
-        "display": "flex",  # Uses flexbox for column layout
+        "display": "flex",
         "gap": "20px",
         "backgroundColor": "#F0E2D3",
         "borderRadius": "10px",
@@ -76,7 +73,7 @@ app.layout = html.Div(
     children=[
         # Left Column (Main Content)
         html.Div(
-            style={"flex": "3"},  # Takes 3x space compared to alerts column
+            style={"flex": "3"},
             children=[
                 # Banner
                 html.Div(
@@ -115,34 +112,70 @@ app.layout = html.Div(
         # Right Column (Price Alerts)
         html.Div(
             style={
-                "flex": "1",  # Takes less space than the main column
+                "flex": "1",
                 "display": "flex",
                 "flexDirection": "column",
                 "gap": "10px",
                 "alignItems": "center",
                 "borderLeft": "2px solid #ccc",
                 "paddingLeft": "10px",
-                "minWidth": "250px",  # Ensures alerts fit well
+                "minWidth": "250px",
             },
             children=[
-                html.H4("Price Alerts", style={"marginBottom": "10px"}),  # Title
-                html.Div(id="price-alerts"),  # Alerts container
+                html.H4("Price Alerts", style={"marginBottom": "10px"}),
+                html.Div(id="price-alerts"),
             ],
         ),
     ],
 )
 
-# 🟢 Callback to Generate Price Alerts
 @app.callback(
     Output("price-alerts", "children"),
-    Input("product-dropdown", "id")  # Triggers once when page loads
+    Input("product-dropdown", "id")  # This runs once when the page loads
 )
 def update_price_alerts(_):
-    alerts = get_price_changes()
-    
+    if df.empty:
+        return [html.Div("No data available.", style={"textAlign": "center", "padding": "10px"})]
+
+    # Get the most recent two days in the dataset
+    latest_dates = df["scrape_date"].drop_duplicates().nlargest(2).tolist()
+    if len(latest_dates) < 2:
+        return [html.Div("Not enough data for price changes.", style={"textAlign": "center", "padding": "10px"})]
+
+    today, yesterday = latest_dates  # Extract the two most recent days
+
+    # 🟢 **Step 1: Filter dataset to only include the last two days**
+    df_recent = df[df["scrape_date"].isin([today, yesterday])]
+
+    # 🟢 **Step 2: Aggregate prices by taking the average per product per day**
+    df_avg = df_recent.groupby(["product_name", "scrape_date"])["price"].mean().reset_index()
+
+    # 🟢 **Step 3: Pivot the data so that each product has prices for the last two days**
+    df_pivot = df_avg.pivot(index="product_name", columns="scrape_date", values="price").dropna()
+
+    # Rename columns for clarity
+    df_pivot.columns = ["yesterday_price", "today_price"]
+
+    # 🟢 **Step 4: Calculate percentage price change**
+    df_pivot["price_change"] = ((df_pivot["today_price"] - df_pivot["yesterday_price"]) / df_pivot["yesterday_price"]) * 100
+
+    # 🟢 **Step 5: Get the top 10 most significant price changes**
+    top_changes = df_pivot["price_change"].abs().nlargest(10)
+
+    # **Step 6: Format results for display**
+    alerts = [
+        {
+            "product": product,
+            "change": df_pivot.loc[product, "price_change"],
+            "color": "red" if df_pivot.loc[product, "price_change"] > 0 else "green"
+        }
+        for product in top_changes.index
+    ]
+
+    # **Step 7: Return alerts**
     if not alerts:
         return [html.Div("No significant price changes.", style={"textAlign": "center", "padding": "10px"})]
-    
+
     return [
         html.Div(
             f"{alert['product']}: {'↑' if alert['color'] == 'red' else '↓'} {alert['change']:.2f}%",
@@ -153,7 +186,7 @@ def update_price_alerts(_):
                 "color": "white",
                 "backgroundColor": alert["color"],
                 "fontWeight": "bold",
-                "width": "100%",  # Makes sure alerts are the same width
+                "width": "100%",
                 "textAlign": "center",
             },
         )
@@ -166,14 +199,16 @@ def update_price_alerts(_):
     Input("product-dropdown", "value")
 )
 def update_plot(selected_products):
-    if not selected_products or df.empty:
-        return px.scatter(title="Select products to see trends")
+    print("Selected Products:", selected_products)  # Debugging statement
+
+    if df.empty or not selected_products:
+        return px.line(title="Select products to see trends")
 
     # Filter for selected products
     filtered_df = df[df["product_name"].isin(selected_products)]
 
-    # Create scatter plot
-    fig = px.scatter(
+    # Create line plot instead of scatter for trend visualization
+    fig = px.line(
         filtered_df,
         x="scrape_date",
         y="price",
