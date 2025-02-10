@@ -1,3 +1,15 @@
+import httpx
+
+_original_init = httpx.Client.__init__
+
+def patched_init(self, *args, proxy=None, **kwargs):
+    # If a "proxy" is passed, replace it with "proxies"
+    if proxy is not None:
+        kwargs["proxies"] = proxy
+    _original_init(self, *args, **kwargs)
+
+httpx.Client.__init__ = patched_init
+
 import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
